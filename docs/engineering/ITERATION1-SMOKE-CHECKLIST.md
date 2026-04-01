@@ -1,9 +1,11 @@
-﻿# ITERATION 1 SMOKE CHECKLIST
+# ITERATION 1 SMOKE CHECKLIST
 
-状态：Draft  
+状态：Legacy / Superseded  
 日期：2026-03-31  
 适用范围：PR-1 ~ PR-4 本地数据库与 workspace 验证
 
+> 最新 smoke 联调入口请优先使用 [ITERATION2-SMOKE-CHECKLIST.md](/d:/ai应用项目/thinking/docs/engineering/ITERATION2-SMOKE-CHECKLIST.md)。
+> 这份文档保留为 Iteration 1 历史记录，不再覆盖当前的 `review submit`、文本主链路落库、以及 workspace 可操作动作。
 ## 1. 文档目的
 
 这份清单用于验证当前已经完成的四个阶段是否真正打通：

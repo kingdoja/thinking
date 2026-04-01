@@ -1,4 +1,4 @@
-﻿from sqlalchemy import select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import StageTaskModel
@@ -7,6 +7,9 @@ from app.db.models import StageTaskModel
 class StageTaskRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    def get(self, task_id):
+        return self.db.get(StageTaskModel, task_id)
 
     def create(self, commit: bool = True, **kwargs) -> StageTaskModel:
         stage_task = StageTaskModel(**kwargs)
@@ -46,7 +49,7 @@ class StageTaskRepository:
         return self.db.scalars(stmt).first()
 
     def update_status(self, task_id, task_status: str, **updates):
-        stage_task = self.db.get(StageTaskModel, task_id)
+        stage_task = self.get(task_id)
         if stage_task is None:
             return None
 
@@ -57,4 +60,18 @@ class StageTaskRepository:
         self.db.add(stage_task)
         self.db.commit()
         self.db.refresh(stage_task)
+        return stage_task
+
+    def update_review_status(self, task_id, review_status: str, commit: bool = True):
+        stage_task = self.get(task_id)
+        if stage_task is None:
+            return None
+
+        stage_task.review_status = review_status
+        self.db.add(stage_task)
+        if commit:
+            self.db.commit()
+            self.db.refresh(stage_task)
+        else:
+            self.db.flush()
         return stage_task

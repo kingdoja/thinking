@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -70,6 +70,12 @@ class ShotSummaryResponse(BaseModel):
     status: str
     stage_task_id: UUID | None = None
     updated_at: datetime | None = None
+
+
+class SubmitReviewDecisionRequest(BaseModel):
+    stage_task_id: UUID
+    decision: ReviewDecisionType
+    decision_note: str | None = Field(default=None, max_length=1000)
 
 
 class ReviewDecisionSummaryResponse(BaseModel):

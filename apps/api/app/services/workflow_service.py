@@ -1,8 +1,13 @@
-﻿from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 
+from app.db.models import EpisodeModel, ProjectModel
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.episode_repository import EpisodeRepository
+from app.repositories.shot_repository import ShotRepository
 from app.repositories.stage_task_repository import StageTaskRepository
 from app.repositories.workflow_repository import WorkflowRepository
 from app.schemas.workflow import StartEpisodeWorkflowRequest
+from app.services.text_workflow_service import TEXT_STAGE_SEQUENCE, TextWorkflowService
 
 STAGE_WORKER_KIND: dict[str, str] = {
     "brief": "agent",
@@ -40,10 +45,14 @@ class WorkflowService:
         db: Session,
         workflows: WorkflowRepository,
         stage_tasks: StageTaskRepository,
+        documents: DocumentRepository,
+        shots: ShotRepository,
+        episodes: EpisodeRepository,
     ) -> None:
         self.db = db
         self.workflows = workflows
         self.stage_tasks = stage_tasks
+        self.text_workflow = TextWorkflowService(db, stage_tasks, documents, shots, episodes, workflows)
 
     def start_episode_workflow(self, project_id, episode_id, payload: StartEpisodeWorkflowRequest):
         workflow = self.workflows.create(
@@ -53,6 +62,16 @@ class WorkflowService:
             workflow_kind="episode",
             commit=False,
         )
+
+        if payload.start_stage in TEXT_STAGE_SEQUENCE:
+            project = self.db.get(ProjectModel, project_id)
+            episode = self.db.get(EpisodeModel, episode_id)
+            if project is None or episode is None:
+                raise LookupError("Workspace not found")
+
+            self.text_workflow.execute_text_chain(project, episode, workflow, payload.start_stage)
+            self.db.refresh(workflow)
+            return workflow
 
         self.stage_tasks.create(
             commit=False,

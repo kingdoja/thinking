@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "thinking-api"
 version = "0.1.0"
 description = "API for the AI comic drama creator workspace"

@@ -1,4 +1,4 @@
-﻿from sqlalchemy import select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import ReviewDecisionModel
@@ -8,11 +8,14 @@ class ReviewRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create(self, **kwargs) -> ReviewDecisionModel:
+    def create(self, commit: bool = True, **kwargs) -> ReviewDecisionModel:
         review = ReviewDecisionModel(**kwargs)
         self.db.add(review)
-        self.db.commit()
-        self.db.refresh(review)
+        if commit:
+            self.db.commit()
+            self.db.refresh(review)
+        else:
+            self.db.flush()
         return review
 
     def list_for_episode(self, episode_id) -> list[ReviewDecisionModel]:

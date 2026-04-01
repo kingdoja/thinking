@@ -1,4 +1,4 @@
-﻿from sqlalchemy import func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ShotModel
@@ -8,13 +8,20 @@ class ShotRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create_many(self, payloads: list[dict]) -> list[ShotModel]:
+    def create_many(self, payloads: list[dict], commit: bool = True) -> list[ShotModel]:
         shots = [ShotModel(**payload) for payload in payloads]
         self.db.add_all(shots)
-        self.db.commit()
-        for shot in shots:
-            self.db.refresh(shot)
+        if commit:
+            self.db.commit()
+            for shot in shots:
+                self.db.refresh(shot)
+        else:
+            self.db.flush()
         return shots
+
+    def latest_version_for_episode(self, episode_id) -> int:
+        version = self.db.scalar(select(func.max(ShotModel.version)).where(ShotModel.episode_id == episode_id))
+        return int(version or 0)
 
     def list_for_episode(self, episode_id) -> list[ShotModel]:
         stmt = (

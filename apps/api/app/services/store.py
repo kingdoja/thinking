@@ -1,4 +1,4 @@
-﻿from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy.orm import Session
 
@@ -32,9 +32,11 @@ from app.schemas.workspace import (
     ReviewDecisionSummaryResponse,
     ShotSummaryResponse,
     StageTaskSummaryResponse,
+    SubmitReviewDecisionRequest,
     WorkspaceQAResponse,
     WorkspaceReviewResponse,
 )
+from app.services.review_service import ReviewService
 from app.services.workflow_service import WorkflowService
 
 
@@ -141,7 +143,8 @@ class DatabaseStore:
         self.stage_tasks = StageTaskRepository(db)
         self.shots = ShotRepository(db)
         self.reviews = ReviewRepository(db)
-        self.workflow_service = WorkflowService(db, self.workflows, self.stage_tasks)
+        self.workflow_service = WorkflowService(db, self.workflows, self.stage_tasks, self.documents, self.shots, self.episodes)
+        self.review_service = ReviewService(db, self.stage_tasks, self.reviews)
 
     def create_project(self, payload: CreateProjectRequest) -> ProjectResponse:
         return _to_project_response(self.projects.create(payload))
@@ -166,6 +169,15 @@ class DatabaseStore:
 
     def latest_workflow_for_episode(self, episode_id):
         return _to_workflow_response(self.workflows.latest_for_episode(episode_id))
+
+    def submit_review_decision(
+        self,
+        project_id,
+        episode_id,
+        payload: SubmitReviewDecisionRequest,
+    ) -> ReviewDecisionSummaryResponse:
+        review = self.review_service.submit_review_decision(project_id, episode_id, payload)
+        return _to_review_summary(review)
 
     def build_workspace(self, project_id, episode_id) -> EpisodeWorkspaceResponse | None:
         project = self.get_project(project_id)
@@ -234,7 +246,7 @@ class DatabaseStore:
             ),
             review_summary=review_summary,
             latest_workflow=_to_workflow_response(latest_workflow),
-            generated_at=datetime.now(UTC),
+            generated_at=datetime.now(timezone.utc),
             metadata={
                 "mode": "database-backed-workspace",
                 "shots_mode": "current-version-db-query",

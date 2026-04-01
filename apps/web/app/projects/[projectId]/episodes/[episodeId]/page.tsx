@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { fetchEpisodeWorkspace } from "../../../../../lib/api";
+import WorkspaceControls from "./workspace-controls";
 
 type WorkspacePageProps = {
   params: Promise<{
@@ -49,8 +50,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
               {workspace.project.name}
             </h1>
             <p className="subtle">
-              EP{workspace.episode.episode_no.toString().padStart(2, "0")} · {workspace.episode.title ?? "未命名剧集"} ·
-              当前阶段 {formatStageLabel(workspace.episode.current_stage)}
+              EP{workspace.episode.episode_no.toString().padStart(2, "0")} · {workspace.episode.title ?? "未命名剧集"} · 当前阶段 {formatStageLabel(workspace.episode.current_stage)}
             </p>
           </div>
           <div className="workspace-actions">
@@ -65,15 +65,17 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
           <article className="panel hero-card">
             <div className="mono">DATABASE-BACKED WORKSPACE</div>
             <h2 className="section-title" style={{ fontSize: 30, marginTop: 10 }}>
-              当前工作台已经接上真实聚合结果
+              当前工作台已经接入真实聚合结果
             </h2>
             <p className="subtle">
-              这里展示的是后端 workspace 接口返回的真实数据，包括 stage task、分镜、QA 摘要和审核状态，不再依赖前端硬编码。
+              这里展示的是后端 workspace 接口返回的真实数据，包括 stage tasks、shots、QA 摘要、review 状态和已选资产。它已经不是静态 mock，而是数据库里的当前状态。
             </p>
             <div className="action-row">
               <div className="kpi-card workspace-hero-card">
                 <strong>Shots</strong>
-                <div className="subtle" style={{ marginTop: 6 }}>{workspace.shots.length} 个镜头已入库</div>
+                <div className="subtle" style={{ marginTop: 6 }}>
+                  {workspace.shots.length} 个镜头已入库
+                </div>
               </div>
               <div className="kpi-card workspace-hero-card">
                 <strong>Review</strong>
@@ -88,6 +90,14 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
                 </div>
               </div>
             </div>
+
+            <WorkspaceControls
+              projectId={projectId}
+              episodeId={episodeId}
+              currentStage={workspace.episode.current_stage}
+              stageTasks={workspace.stage_tasks}
+              shots={workspace.shots}
+            />
           </article>
 
           <article className="panel hero-card preview-well workspace-preview-card">
@@ -107,65 +117,86 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
           <aside className="panel sidebar workspace-sidebar">
             <div className="mono">WORKFLOW SNAPSHOT</div>
             <div className="sidebar-nav">
-              {workspace.stage_tasks.map((task, index) => {
-                const stateClass =
-                  task.task_status === "succeeded"
-                    ? "done"
-                    : index === activeStageIndex
-                      ? "active"
-                      : "idle";
+              {workspace.stage_tasks.length > 0 ? (
+                workspace.stage_tasks.map((task, index) => {
+                  const stateClass =
+                    task.task_status === "succeeded"
+                      ? "done"
+                      : index === activeStageIndex
+                        ? "active"
+                        : "idle";
 
-                return (
-                  <div key={task.id} className={`workspace-stage-card ${stateClass}`}>
-                    <div>
-                      <strong>{formatStageLabel(task.stage_type)}</strong>
-                      <div className="subtle" style={{ marginTop: 6 }}>
-                        {task.worker_kind} · {task.task_status}
+                  return (
+                    <div key={task.id} className={`workspace-stage-card ${stateClass}`}>
+                      <div>
+                        <strong>{formatStageLabel(task.stage_type)}</strong>
+                        <div className="subtle" style={{ marginTop: 6 }}>
+                          {task.worker_kind} · {task.task_status}
+                        </div>
+                      </div>
+                      <div className="workspace-stage-meta">
+                        <span>{task.review_required ? `review ${task.review_status ?? "pending"}` : "no review"}</span>
+                        <span>{formatTime(task.finished_at ?? task.started_at)}</span>
                       </div>
                     </div>
-                    <div className="workspace-stage-meta">
-                      <span>{task.review_required ? `review ${task.review_status ?? "pending"}` : "no review"}</span>
-                      <span>{formatTime(task.finished_at ?? task.started_at)}</span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <div className="workspace-doc-item">
+                  <strong>暂无 StageTask</strong>
+                  <div className="subtle">先点击上面的“启动 Workflow”，为当前剧集生成第一条执行记录。</div>
+                </div>
+              )}
             </div>
           </aside>
 
           <section className="panel main workspace-main">
             <div className="stagebar workspace-stagebar">
-              {workspace.stage_tasks.map((task, index) => {
-                const className =
-                  task.task_status === "succeeded"
-                    ? "done"
-                    : index === activeStageIndex
-                      ? "active"
-                      : "";
-                return <span key={task.id} className={className} />;
-              })}
+              {workspace.stage_tasks.length > 0 ? (
+                workspace.stage_tasks.map((task, index) => {
+                  const className =
+                    task.task_status === "succeeded"
+                      ? "done"
+                      : index === activeStageIndex
+                        ? "active"
+                        : "";
+                  return <span key={task.id} className={className} />;
+                })
+              ) : (
+                <span className="active" />
+              )}
             </div>
             <div className="mono">CURRENT SHOTS / STORYBOARD</div>
-            <h2 className="section-title" style={{ fontSize: 26, marginTop: 10 }}>当前镜头列表</h2>
+            <h2 className="section-title" style={{ fontSize: 26, marginTop: 10 }}>
+              当前镜头列表
+            </h2>
             <p className="subtle" style={{ marginBottom: 18 }}>
-              分镜区已经改成读取数据库中的最新 shot version。这里可以直接看到镜头状态、时长和镜头文案。
+              分镜区现在直接读取数据库中的最新 shot version。这里能看到镜头状态、时长和动作描述，是后续 image render、subtitle、tts 与 QA 的基础输入。
             </p>
             <div className="storyboard-grid">
-              {workspace.shots.map((shot) => (
-                <article key={shot.id ?? shot.code} className="shot-card">
-                  <div className={`shot-thumb shot-thumb-${shot.status}`} />
-                  <div className="shot-meta">
-                    <strong>
-                      {shot.code}
-                      {shot.shot_index ? ` / #${shot.shot_index}` : ""}
-                    </strong>
-                    <div className="subtle" style={{ marginTop: 6 }}>{shot.title ?? "暂无动作描述"}</div>
-                    <div className="mono" style={{ marginTop: 10 }}>
-                      {formatSeconds(shot.duration_ms)} / {shot.status.toUpperCase()}
+              {workspace.shots.length > 0 ? (
+                workspace.shots.map((shot) => (
+                  <article key={shot.id ?? shot.code} className="shot-card">
+                    <div className={`shot-thumb shot-thumb-${shot.status}`} />
+                    <div className="shot-meta">
+                      <strong>
+                        {shot.code}
+                        {shot.shot_index ? ` / #${shot.shot_index}` : ""}
+                      </strong>
+                      <div className="subtle" style={{ marginTop: 6 }}>
+                        {shot.title ?? "暂无动作描述"}
+                      </div>
+                      <div className="mono" style={{ marginTop: 10 }}>
+                        {formatSeconds(shot.duration_ms)} / {shot.status.toUpperCase()}
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))
+              ) : (
+                <div className="kpi-card">
+                  <div className="subtle">当前还没有 shot 数据，先检查 storyboard stage 是否已经写入数据库。</div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -199,12 +230,19 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
             <div className="workspace-docs-block">
               <div className="mono">DOCUMENT SNAPSHOT</div>
               <div className="workspace-doc-list">
-                {workspace.documents.map((document) => (
-                  <div key={document.id} className="workspace-doc-item">
-                    <strong>{document.document_type}</strong>
-                    <div className="subtle">v{document.version} · {document.status}</div>
+                {workspace.documents.length > 0 ? (
+                  workspace.documents.map((document) => (
+                    <div key={document.id} className="workspace-doc-item">
+                      <strong>{document.document_type}</strong>
+                      <div className="subtle">v{document.version} · {document.status}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="workspace-doc-item">
+                    <strong>暂无文档</strong>
+                    <div className="subtle">先运行 brief / script / storyboard 相关 stage。</div>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </aside>
@@ -219,7 +257,9 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         <div className="topbar">
           <div>
             <div className="badge">Workspace Unavailable</div>
-            <h1 className="section-title" style={{ marginTop: 12 }}>真实工作台暂时不可用</h1>
+            <h1 className="section-title" style={{ marginTop: 12 }}>
+              真实工作台暂时不可用
+            </h1>
             <p className="subtle">请先启动 API，并确认 demo 数据已经写入数据库。</p>
           </div>
           <Link className="btn" href="/">
@@ -229,7 +269,9 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
 
         <section className="panel workspace-error-panel">
           <div className="mono">FETCH ERROR</div>
-          <h2 className="section-title" style={{ fontSize: 24, marginTop: 10 }}>无法获取 workspace 聚合结果</h2>
+          <h2 className="section-title" style={{ fontSize: 24, marginTop: 10 }}>
+            无法获取 workspace 聚合结果
+          </h2>
           <p className="subtle">{message}</p>
           <div className="action-row">
             <Link className="btn primary" href="/">

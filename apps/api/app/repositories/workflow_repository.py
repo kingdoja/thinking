@@ -1,4 +1,5 @@
-﻿import uuid
+import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,3 +44,23 @@ class WorkflowRepository:
             .order_by(WorkflowRunModel.started_at.desc())
         )
         return self.db.scalars(stmt).first()
+
+    def update_status(self, workflow_id, status: str, commit: bool = True, **updates):
+        workflow = self.db.get(WorkflowRunModel, workflow_id)
+        if workflow is None:
+            return None
+
+        workflow.status = status
+        if status in {"succeeded", "failed", "waiting_review"} and "finished_at" not in updates:
+            workflow.finished_at = datetime.now(timezone.utc)
+
+        for key, value in updates.items():
+            setattr(workflow, key, value)
+
+        self.db.add(workflow)
+        if commit:
+            self.db.commit()
+            self.db.refresh(workflow)
+        else:
+            self.db.flush()
+        return workflow

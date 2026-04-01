@@ -1,4 +1,4 @@
-﻿from uuid import UUID
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -6,6 +6,7 @@ from app.api.deps import get_store
 from app.schemas.common import SuccessEnvelope
 from app.schemas.project import CreateEpisodeRequest, CreateProjectRequest
 from app.schemas.workflow import RerunStageRequest, StartEpisodeWorkflowRequest
+from app.schemas.workspace import SubmitReviewDecisionRequest
 from app.services.store import DatabaseStore
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -76,3 +77,20 @@ def rerun_stage(project_id: UUID, episode_id: UUID, payload: RerunStageRequest, 
         "target_shot_ids": payload.target_shot_ids,
         "status": "accepted",
     })
+
+
+@router.post("/projects/{project_id}/episodes/{episode_id}/review", response_model=SuccessEnvelope)
+def submit_review(project_id: UUID, episode_id: UUID, payload: SubmitReviewDecisionRequest, store: DatabaseStore = Depends(get_store)) -> SuccessEnvelope:
+    project = store.get_project(project_id)
+    episode = store.get_episode(episode_id)
+    if not project or not episode:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    try:
+        review = store.submit_review_decision(project_id, episode_id, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return SuccessEnvelope(data=review)
