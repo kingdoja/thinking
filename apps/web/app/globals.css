@@ -1,4 +1,4 @@
-﻿@import "../../../packages/design-tokens/tokens.css";
+@import "../../../packages/design-tokens/tokens.css";
 
 :root {
   color-scheme: light;
@@ -187,7 +187,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 18px;
   display: flex;
-  align-items: end;
+  align-items: flex-end;
 }
 
 .phone-title {
@@ -220,6 +220,18 @@ body {
   background: radial-gradient(circle at top, rgba(142, 51, 79, 0.28), transparent 40%), #332b38;
 }
 
+.shot-thumb-ready {
+  background: radial-gradient(circle at top, rgba(142, 51, 79, 0.28), transparent 40%), #332b38;
+}
+
+.shot-thumb-warning {
+  background: radial-gradient(circle at top, rgba(185, 114, 52, 0.35), transparent 42%), #3a2e26;
+}
+
+.shot-thumb-draft {
+  background: radial-gradient(circle at top, rgba(98, 114, 131, 0.32), transparent 42%), #29313a;
+}
+
 .shot-meta {
   padding: 12px;
 }
@@ -241,9 +253,122 @@ body {
   font-size: 12px;
 }
 
+.workspace-shell {
+  padding-bottom: 40px;
+}
+
+.workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 320px;
+  gap: 18px;
+}
+
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workspace-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(142, 51, 79, 0.08);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.workspace-hero-card {
+  min-width: 180px;
+}
+
+.workspace-preview-card {
+  min-height: 100%;
+}
+
+.workspace-phone {
+  width: 250px;
+}
+
+.workspace-sidebar,
+.workspace-main,
+.workspace-assist {
+  min-height: 100%;
+}
+
+.workspace-stagebar {
+  grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
+}
+
+.workspace-stage-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--card);
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-stage-card.done {
+  border-color: rgba(60, 149, 111, 0.35);
+  background: rgba(60, 149, 111, 0.08);
+}
+
+.workspace-stage-card.active {
+  border-color: rgba(142, 51, 79, 0.32);
+  background: rgba(142, 51, 79, 0.08);
+}
+
+.workspace-stage-card.idle {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.workspace-stage-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--slate);
+  font-size: 12px;
+  font-family: Consolas, "IBM Plex Mono", monospace;
+}
+
+.workspace-docs-block {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-doc-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-doc-item {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.workspace-error-panel {
+  padding: 24px;
+}
+
 @media (max-width: 1180px) {
   .grid,
-  .hero {
+  .hero,
+  .workspace-hero,
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -259,7 +384,21 @@ body {
     padding: 16px;
   }
 
+  .topbar,
+  .workspace-actions,
+  .workspace-stage-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .storyboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .workspace-phone,
+  .phone {
+    width: 100%;
+    max-width: 260px;
+  }
 }
+
