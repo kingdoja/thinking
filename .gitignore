@@ -156,6 +156,10 @@ temp/
 *.sqlite
 *.sqlite3
 
+# Interview materials (keep private)
+docs/interview/
+DEPLOYMENT.md
+
 # Node.js
 node_modules/
 .next/
@@ -167,8 +171,3 @@ yarn-error.log*
 
 # Build output
 *.tsbuildinfo
-
-# Interview and personal materials
-docs/interview/
-DEPLOYMENT.md
-.kiro/
