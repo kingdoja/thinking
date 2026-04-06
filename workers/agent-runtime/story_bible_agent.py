@@ -4,10 +4,12 @@ Story Bible Agent - Establishes world rules and story constraints.
 Implements Requirements: 3.1, 3.2, 3.3, 3.4
 """
 
+import json
 from typing import Any, Dict, List, Tuple
 from uuid import UUID
 
 from base_agent import BaseAgent, DocumentRef, LockedRef, StageTaskInput, Warning
+from llm_service import LLMServiceFactory, LLMMessage
 
 
 class StoryBibleAgent(BaseAgent):
@@ -20,6 +22,22 @@ class StoryBibleAgent(BaseAgent):
     - 3.3: Mark as constraint source for downstream stages
     - 3.4: Check for conflicts with brief
     """
+    
+    def __init__(self, db_session=None, llm_service=None, validator=None):
+        """
+        Initialize Story Bible Agent.
+        
+        Args:
+            db_session: Database session
+            llm_service: LLM service (if None, creates from environment)
+            validator: Validator component
+        """
+        # Create LLM service if not provided
+        if llm_service is None:
+            llm_service = LLMServiceFactory.create_from_env()
+        
+        super().__init__(db_session, llm_service, validator)
+        self._token_usage = 0
     
     def get_output_schema(self) -> Dict[str, Any]:
         """Get the JSON schema for story bible output."""
@@ -129,11 +147,54 @@ class StoryBibleAgent(BaseAgent):
         if not self.llm_service:
             raise RuntimeError("LLM service not configured")
         
-        return self.llm_service.generate(
-            prompt=plan["prompt"],
-            schema=plan["schema"],
-            temperature=plan["temperature"]
+        # Build system and user prompts
+        system_prompt = """你是一个专业的世界观设定师和故事架构师。你的任务是为影视作品创建详细的故事圣经（Story Bible），建立世界规则和故事约束。
+
+你需要：
+1. 定义清晰的世界规则，确保故事逻辑自洽
+2. 建立时间线，梳理关键事件的先后顺序
+3. 设定角色关系基线，明确初始关系状态
+4. 列出禁止冲突，避免破坏故事逻辑的情节
+5. 描述关键场景设定
+
+请以 JSON 格式返回结果，确保所有字段都完整且有价值。"""
+        
+        user_prompt = plan["prompt"]
+        
+        # Call LLM
+        response = self.llm_service.generate_from_prompt(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=plan["temperature"],
+            max_tokens=2500
         )
+        
+        # Track token usage
+        self._token_usage = response.token_usage.get("total_tokens", 0)
+        
+        # Parse JSON response
+        try:
+            content = json.loads(response.content)
+            return content
+        except json.JSONDecodeError:
+            # If LLM didn't return valid JSON, try to extract it
+            content_str = response.content.strip()
+            
+            # Try to find JSON in markdown code blocks
+            if "```json" in content_str:
+                start = content_str.find("```json") + 7
+                end = content_str.find("```", start)
+                content_str = content_str[start:end].strip()
+            elif "```" in content_str:
+                start = content_str.find("```") + 3
+                end = content_str.find("```", start)
+                content_str = content_str[start:end].strip()
+            
+            try:
+                content = json.loads(content_str)
+                return content
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"LLM returned invalid JSON: {e}\nResponse: {response.content}")
     
     def critic(self, draft: Dict[str, Any], normalized: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Warning]]:
         """
@@ -238,7 +299,7 @@ class StoryBibleAgent(BaseAgent):
                 ],
                 "assets": [],
                 "quality_notes": ["Story bible generated as constraint source"],
-                "token_usage": getattr(self.llm_service, "call_count", 1) * 500 if self.llm_service else 500
+                "token_usage": self._token_usage
             }
         
         from app.repositories.document_repository import DocumentRepository
@@ -278,29 +339,78 @@ class StoryBibleAgent(BaseAgent):
             ],
             "assets": [],
             "quality_notes": ["Story bible generated as constraint source for downstream stages"],
-            "token_usage": self.llm_service.get_token_usage() if self.llm_service else 500
+            "token_usage": self._token_usage
         }
     
     def _build_prompt(self, normalized: Dict[str, Any]) -> str:
         """Build prompt for LLM."""
-        return f"""Based on the brief, create a story bible that establishes world rules and constraints.
+        schema = self.get_output_schema()
+        
+        return f"""基于 Brief 文档，创建一个详细的故事圣经（Story Bible），建立世界规则和故事约束。
 
-Brief Information:
-- Genre: {normalized['genre']}
-- Core Selling Points: {', '.join(normalized['core_selling_points'])}
-- Main Conflict: {normalized['main_conflict']}
+【Brief 信息】
+- 故事类型：{normalized.get('genre', '未指定')}
+- 核心卖点：{', '.join(normalized.get('core_selling_points', []))}
+- 主要冲突：{normalized.get('main_conflict', '未指定')}
 
-Raw Material Summary:
-{normalized['raw_material_summary']}
+【原始素材摘要】
+{normalized.get('raw_material_summary', '无')}
 
-Generate a story bible that includes:
-- World rules that support the story
-- Timeline of key events
-- Relationship baseline between characters
-- Forbidden conflicts (things that should not happen)
-- Key settings descriptions
+【输出要求】
+请以 JSON 格式返回，包含以下字段：
 
-Return as JSON matching the schema."""
+1. world_rules (array of strings): 世界规则（3-5条）
+   - 定义故事世界的基本规则和逻辑
+   - 确保故事的自洽性
+   - 支持核心卖点的实现
+
+2. timeline (array of objects): 时间线（可选）
+   - event (string): 事件描述
+   - time (string): 时间点
+   - 梳理关键事件的先后顺序
+
+3. relationship_baseline (object): 角色关系基线（可选）
+   - 定义主要角色之间的初始关系状态
+   - 为后续角色发展提供基础
+
+4. forbidden_conflicts (array of strings): 禁止冲突（2-4条）
+   - 列出不应该出现的情节或冲突
+   - 避免破坏故事逻辑或核心卖点
+
+5. key_settings (object): 关键场景设定（可选）
+   - 描述重要场景的特征和氛围
+   - 为视觉呈现提供指导
+
+【示例输出格式】
+```json
+{{
+  "world_rules": [
+    "时间循环每24小时重置一次，只有主角保留记忆",
+    "循环中的事件可以被改变，但核心事故必然发生",
+    "只有找到事故的真正原因才能打破循环"
+  ],
+  "timeline": [
+    {{"event": "主角首次进入时间循环", "time": "第1天"}},
+    {{"event": "主角遇到神秘女孩", "time": "第7天"}},
+    {{"event": "发现事故线索", "time": "第15天"}}
+  ],
+  "relationship_baseline": {{
+    "主角与女孩": "陌生人，但女孩似乎知道循环的秘密",
+    "主角与城市": "普通程序员，对城市很熟悉"
+  }},
+  "forbidden_conflicts": [
+    "不能让主角轻易打破循环，必须经过充分的探索",
+    "不能让循环的原因过于简单或随意",
+    "不能让女孩的动机不明确"
+  ],
+  "key_settings": {{
+    "地铁站": "循环的起点，神秘而压抑的氛围",
+    "城市街道": "熟悉但又陌生，每次循环都有细微变化"
+  }}
+}}
+```
+
+请根据 Brief 信息生成 Story Bible："""
     
     def _generate_summary(self, content: Dict[str, Any]) -> str:
         """Generate summary text for story bible."""
