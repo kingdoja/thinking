@@ -167,3 +167,8 @@ yarn-error.log*
 
 # Build output
 *.tsbuildinfo
+
+# Interview and personal materials
+docs/interview/
+DEPLOYMENT.md
+.kiro/
