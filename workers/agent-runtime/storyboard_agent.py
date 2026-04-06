@@ -4,10 +4,12 @@ Storyboard Agent - Generates shots and visual specifications from script draft.
 Implements Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
 """
 
+import json
 from typing import Any, Dict, List, Tuple
 from uuid import UUID, uuid4
 
 from base_agent import BaseAgent, AssetRef, DocumentRef, LockedRef, StageTaskInput, Warning
+from llm_service import LLMServiceFactory, LLMMessage
 
 
 class StoryboardAgent(BaseAgent):
@@ -21,6 +23,22 @@ class StoryboardAgent(BaseAgent):
     - 6.4: Generate visual_spec with render_prompt and style_keywords
     - 6.5: Validate total duration against target
     """
+    
+    def __init__(self, db_session=None, llm_service=None, validator=None):
+        """
+        Initialize Storyboard Agent.
+        
+        Args:
+            db_session: Database session
+            llm_service: LLM service (if None, creates from environment)
+            validator: Validator component
+        """
+        # Create LLM service if not provided
+        if llm_service is None:
+            llm_service = LLMServiceFactory.create_from_env()
+        
+        super().__init__(db_session, llm_service, validator)
+        self._token_usage = 0
     
     def get_output_schema(self) -> Dict[str, Any]:
         """Get the JSON schema for storyboard output."""
@@ -147,11 +165,54 @@ class StoryboardAgent(BaseAgent):
         if not self.llm_service:
             raise RuntimeError("LLM service not configured")
         
-        return self.llm_service.generate(
-            prompt=plan["prompt"],
-            schema=plan["schema"],
-            temperature=plan["temperature"]
+        # Build system and user prompts
+        system_prompt = """你是一个专业的分镜师和视觉设计师。你的任务是将剧本转换为详细的分镜脚本，包含每个镜头的视觉描述。
+
+你需要：
+1. 将剧本场景拆分为具体的镜头
+2. 为每个镜头生成详细的渲染提示词（用于 AI 图像生成）
+3. 指定镜头构图、角色、风格关键词
+4. 确保视觉风格统一
+5. 控制总时长在目标范围内
+
+请以 JSON 格式返回结果，确保所有字段都完整且有价值。"""
+        
+        user_prompt = plan["prompt"]
+        
+        # Call LLM with higher max_tokens for storyboard generation
+        response = self.llm_service.generate_from_prompt(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=plan["temperature"],
+            max_tokens=4000
         )
+        
+        # Track token usage
+        self._token_usage = response.token_usage.get("total_tokens", 0)
+        
+        # Parse JSON response
+        try:
+            content = json.loads(response.content)
+            return content
+        except json.JSONDecodeError:
+            # If LLM didn't return valid JSON, try to extract it
+            content_str = response.content.strip()
+            
+            # Try to find JSON in markdown code blocks
+            if "```json" in content_str:
+                start = content_str.find("```json") + 7
+                end = content_str.find("```", start)
+                content_str = content_str[start:end].strip()
+            elif "```" in content_str:
+                start = content_str.find("```") + 3
+                end = content_str.find("```", start)
+                content_str = content_str[start:end].strip()
+            
+            try:
+                content = json.loads(content_str)
+                return content
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"LLM returned invalid JSON: {e}\nResponse: {response.content}")
     
     def critic(self, draft: Dict[str, Any], normalized: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Warning]]:
         """
@@ -303,7 +364,7 @@ class StoryboardAgent(BaseAgent):
                     for i in range(shot_count)
                 ],
                 "quality_notes": [f"Generated {shot_count} shots"],
-                "token_usage": getattr(self.llm_service, "call_count", 1) * 500 if self.llm_service else 500
+                "token_usage": self._token_usage
             }
         
         from app.repositories.document_repository import DocumentRepository
@@ -410,7 +471,7 @@ class StoryboardAgent(BaseAgent):
                 f"Total duration: {valid.get('overall_duration_ms', 0)}ms",
                 f"Visual style: {valid.get('visual_style', 'N/A')}"
             ],
-            "token_usage": self.llm_service.get_token_usage() if self.llm_service else 500
+            "token_usage": self._token_usage
         }
     
     def _build_prompt(self, normalized: Dict[str, Any]) -> str:
@@ -418,47 +479,93 @@ class StoryboardAgent(BaseAgent):
         scenes = normalized.get("scenes", [])
         characters = normalized.get("characters", [])
         
-        scene_summary = "\n".join([
-            f"Scene {s.get('scene_no', i+1)}: {s.get('location', 'Unknown')} - {s.get('goal', 'N/A')}"
-            for i, s in enumerate(scenes)
-        ])
+        # Format scenes
+        scene_list = []
+        for i, s in enumerate(scenes):
+            scene_list.append(f"  场景 {s.get('scene_no', i+1)}: {s.get('location', '未知')} - {s.get('goal', '无')}")
+        scene_str = '\n'.join(scene_list) if scene_list else "  （无）"
         
-        char_summary = "\n".join([
-            f"- {c.get('name', '')}: {c.get('visual_anchor', 'No visual anchor')}"
-            for c in characters
-        ])
+        # Format characters
+        char_list = []
+        for c in characters:
+            char_list.append(f"  - {c.get('name', '')}: {c.get('visual_anchor', '无视觉锚点')}")
+        char_str = '\n'.join(char_list) if char_list else "  （无）"
         
-        return f"""Based on the script draft, create a detailed storyboard with shot-by-shot breakdown.
+        return f"""基于剧本草稿，创建详细的分镜脚本，包含逐镜头的视觉描述。
 
-Platform: {normalized['platform']}
-Aspect Ratio: {normalized['aspect_ratio']}
-Target Duration: {normalized['target_duration_sec']} seconds
-Max Shots: {normalized['max_shots']}
+【平台信息】
+- 平台：{normalized.get('platform', 'douyin')}
+- 画面比例：{normalized.get('aspect_ratio', '9:16')}
+- 目标时长：{normalized.get('target_duration_sec', 60)} 秒
+- 最大镜头数：{normalized.get('max_shots', 20)}
 
-Script Scenes:
-{scene_summary}
+【剧本场景】
+{scene_str}
 
-Characters:
-{char_summary}
+【角色信息】
+{char_str}
 
-Generate a visual specification that includes:
-- Shot-by-shot breakdown with unique IDs
-- Detailed render prompts for each shot (include character visual anchors)
-- Character references for each shot
-- Style keywords (cinematic, cold palette, etc.)
-- Composition type (close-up, medium, wide, two-shot, etc.)
-- Overall duration in milliseconds
-- Shot count
-- Visual style description
-- Camera strategy
+【输出要求】
+请以 JSON 格式返回，包含以下结构：
 
-Ensure:
-1. Each shot has a unique shot_id
-2. Render prompts reference character visual anchors when characters are present
-3. Total duration stays within target
-4. Shot count doesn't exceed platform maximum
+{{
+  "shots": [
+    {{
+      "shot_id": "唯一镜头ID（如：shot_001）",
+      "render_prompt": "详细的渲染提示词（用于 AI 图像生成，必须包含角色的视觉锚点）",
+      "character_refs": ["出现的角色名称"],
+      "style_keywords": ["风格关键词1", "风格关键词2"],
+      "composition": "镜头构图（如：close-up, medium, wide, two-shot 等）"
+    }}
+  ],
+  "overall_duration_ms": 60000,
+  "shot_count": 10,
+  "visual_style": "整体视觉风格描述",
+  "camera_strategy": "镜头策略描述"
+}}
 
-Return as JSON matching the schema."""
+【关键要求】
+1. 每个镜头必须有唯一的 shot_id
+2. render_prompt 必须详细且包含角色的视觉锚点（如果角色出现）
+3. 总时长（overall_duration_ms）控制在目标范围内
+4. 镜头数量（shot_count）不超过平台最大值
+5. style_keywords 要具体（如：赛博朋克、冷色调、霓虹灯、未来感等）
+6. composition 要明确（close-up/medium/wide/two-shot/over-shoulder 等）
+
+【示例输出】
+```json
+{{
+  "shots": [
+    {{
+      "shot_id": "shot_001",
+      "render_prompt": "梧桐路地铁站B出口，清晨7点，一个年轻男子（陈屿）站在闸机前，左眼角有细长疤痕，穿着深蓝色连帽衫，黑色短发凌乱，表情困惑，赛博朋克风格，冷色调，霓虹灯光效果",
+      "character_refs": ["陈屿"],
+      "style_keywords": ["赛博朋克", "冷色调", "霓虹灯", "未来感", "地铁站"],
+      "composition": "medium"
+    }},
+    {{
+      "shot_id": "shot_002",
+      "render_prompt": "陈屿的特写镜头，左眼角疤痕清晰可见，眼神中充满困惑和恐慌，右手下意识摸向左手腕（原本戴表的位置），背景虚化的地铁站，冷色调光线",
+      "character_refs": ["陈屿"],
+      "style_keywords": ["特写", "情绪表达", "细节刻画", "冷色调"],
+      "composition": "close-up"
+    }},
+    {{
+      "shot_id": "shot_003",
+      "render_prompt": "地铁站台，陈屿和神秘女孩的双人镜头，女孩半透明的身影，穿着白色连衣裙（边缘有数字化像素闪烁），长发遮住右半边脸，左手腕有发光的数字编码，两人对视，紧张的氛围",
+      "character_refs": ["陈屿", "神秘女孩"],
+      "style_keywords": ["双人镜头", "神秘氛围", "数字化效果", "对比"],
+      "composition": "two-shot"
+    }}
+  ],
+  "overall_duration_ms": 60000,
+  "shot_count": 10,
+  "visual_style": "赛博朋克风格，冷色调为主，霓虹灯光效果，未来感城市场景，数字化元素点缀",
+  "camera_strategy": "以中景和特写为主，通过镜头语言强化角色情绪和神秘氛围，使用双人镜头展现角色关系"
+}}
+```
+
+请根据剧本生成分镜脚本："""
     
     def _generate_summary(self, content: Dict[str, Any]) -> str:
         """Generate summary text for visual spec."""
