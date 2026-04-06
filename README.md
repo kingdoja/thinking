@@ -305,11 +305,22 @@ cd infra/docker
 docker-compose up -d postgres redis minio
 ```
 
-2. **设置 Python 环境**：
+2. **设置 Python 虚拟环境**：
 ```bash
 cd apps/api
+
+# 创建虚拟环境（项目使用 .venv）
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 激活虚拟环境
+# Linux/Mac:
+source .venv/bin/activate
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+
+# 安装依赖
 pip install -r requirements.txt
 ```
 

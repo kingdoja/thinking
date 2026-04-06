@@ -199,11 +199,22 @@ cd infra/docker
 docker-compose up -d postgres redis minio
 ```
 
-2. **Setup Python environment**:
+2. **Setup Python virtual environment**:
 ```bash
 cd apps/api
+
+# Create virtual environment (project uses .venv)
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Activate virtual environment
+# Linux/Mac:
+source .venv/bin/activate
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
