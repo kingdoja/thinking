@@ -10,6 +10,7 @@ from app.repositories.stage_task_repository import StageTaskRepository
 from app.repositories.workflow_repository import WorkflowRepository
 from app.schemas.workflow import StartEpisodeWorkflowRequest
 from app.services.text_workflow_service import TEXT_STAGE_SEQUENCE, TextWorkflowService
+from app.services.media_workflow_service import MEDIA_STAGE_SEQUENCE, MediaWorkflowService
 
 STAGE_WORKER_KIND: Dict[str, str] = {
     "brief": "agent",
@@ -50,11 +51,13 @@ class WorkflowService:
         documents: DocumentRepository,
         shots: ShotRepository,
         episodes: EpisodeRepository,
+        media_workflow: MediaWorkflowService = None,
     ) -> None:
         self.db = db
         self.workflows = workflows
         self.stage_tasks = stage_tasks
         self.text_workflow = TextWorkflowService(db, stage_tasks, documents, shots, episodes, workflows)
+        self.media_workflow = media_workflow
 
     def start_episode_workflow(self, project_id, episode_id, payload: StartEpisodeWorkflowRequest):
         workflow = self.workflows.create(
@@ -72,6 +75,29 @@ class WorkflowService:
                 raise LookupError("Workspace not found")
 
             self.text_workflow.execute_text_chain(project, episode, workflow, payload.start_stage)
+            self.db.refresh(workflow)
+            return workflow
+        
+        # Check if this is a media stage
+        if payload.start_stage in MEDIA_STAGE_SEQUENCE and self.media_workflow:
+            project = self.db.get(ProjectModel, project_id)
+            episode = self.db.get(EpisodeModel, episode_id)
+            if project is None or episode is None:
+                raise LookupError("Workspace not found")
+            
+            # Execute media workflow asynchronously
+            # Note: This requires the caller to handle async execution
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            result = loop.run_until_complete(
+                self.media_workflow.execute_media_chain(project, episode, workflow, payload.start_stage)
+            )
+            
             self.db.refresh(workflow)
             return workflow
 

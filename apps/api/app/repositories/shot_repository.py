@@ -64,3 +64,35 @@ class ShotRepository:
             self.db.delete(shot)
         self.db.commit()
         return deleted
+
+    def get_by_id(self, shot_id) -> Optional[ShotModel]:
+        """Get a single shot by ID."""
+        return self.db.get(ShotModel, shot_id)
+
+    def get_by_id_and_version(self, shot_id, version: int) -> Optional[ShotModel]:
+        """Get a specific version of a shot."""
+        stmt = select(ShotModel).where(
+            ShotModel.id == shot_id,
+            ShotModel.version == version
+        )
+        return self.db.scalar(stmt)
+
+    def list_versions_for_shot(self, shot_id) -> List[ShotModel]:
+        """Get all versions of a shot, ordered by version descending."""
+        stmt = (
+            select(ShotModel)
+            .where(ShotModel.id == shot_id)
+            .order_by(ShotModel.version.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def create_shot(self, payload: Dict[str, Any], commit: bool = True) -> ShotModel:
+        """Create a single shot."""
+        shot = ShotModel(**payload)
+        self.db.add(shot)
+        if commit:
+            self.db.commit()
+            self.db.refresh(shot)
+        else:
+            self.db.flush()
+        return shot

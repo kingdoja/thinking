@@ -156,6 +156,12 @@ temp/
 *.sqlite
 *.sqlite3
 
+# Hypothesis testing cache
+.hypothesis/
+
+# Pytest cache directories
+pytest-cache-files-*/
+
 # Interview materials (keep private)
 docs/interview/
 DEPLOYMENT.md

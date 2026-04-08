@@ -65,10 +65,19 @@ class ShotSummaryResponse(BaseModel):
     id: Optional[UUID] = None
     code: str
     shot_index: Optional[int] = None
+    scene_no: Optional[int] = None
+    shot_no: Optional[int] = None
     title: Optional[str] = None
     duration_ms: int
     status: str
+    camera_size: Optional[str] = None
+    camera_angle: Optional[str] = None
+    movement_type: Optional[str] = None
+    characters: List[str] = Field(default_factory=list)
+    visual_constraints_summary: Optional[Dict[str, Any]] = None
+    visual_spec_doc_id: Optional[UUID] = None
     stage_task_id: Optional[UUID] = None
+    version: int = 1
     updated_at: Optional[datetime] = None
 
 

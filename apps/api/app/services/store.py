@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -98,15 +99,35 @@ def _to_stage_task_summary(stage_task: StageTaskModel) -> StageTaskSummaryRespon
     )
 
 
-def _to_shot_summary(shot: ShotModel) -> ShotSummaryResponse:
+def _to_shot_summary(shot: ShotModel, visual_spec_doc_id: Optional[UUID] = None) -> ShotSummaryResponse:
+    # Extract visual_constraints summary
+    visual_constraints = shot.visual_constraints_jsonb or {}
+    visual_constraints_summary = None
+    if visual_constraints:
+        visual_constraints_summary = {
+            "render_prompt": visual_constraints.get("render_prompt", "")[:200] if visual_constraints.get("render_prompt") else "",
+            "style_keywords": visual_constraints.get("style_keywords", []),
+            "composition": visual_constraints.get("composition", ""),
+            "character_refs": visual_constraints.get("character_refs", []),
+        }
+    
     return ShotSummaryResponse(
         id=shot.id,
         code=shot.shot_code,
         shot_index=shot.shot_no,
+        scene_no=shot.scene_no,
+        shot_no=shot.shot_no,
         title=shot.action_text,
         duration_ms=shot.duration_ms,
         status=shot.status,
+        camera_size=shot.camera_size,
+        camera_angle=shot.camera_angle,
+        movement_type=shot.movement_type,
+        characters=shot.characters_jsonb or [],
+        visual_constraints_summary=visual_constraints_summary,
+        visual_spec_doc_id=visual_spec_doc_id,
         stage_task_id=shot.stage_task_id,
+        version=shot.version,
         updated_at=shot.updated_at,
     )
 
@@ -187,7 +208,10 @@ class DatabaseStore:
             return None
 
         latest_workflow = self.workflows.latest_for_episode(episode_id)
-        documents = [_to_document_summary(item) for item in self.documents.list_for_episode(episode_id)]
+        
+        # Query documents once and reuse
+        all_documents = self.documents.list_for_episode(episode_id)
+        documents = [_to_document_summary(item) for item in all_documents]
 
         selected_assets = self.assets.list_selected_for_episode(episode_id)
         assets_source = selected_assets if selected_assets else self.assets.list_for_episode(episode_id)
@@ -200,7 +224,21 @@ class DatabaseStore:
             stage_task_models = self.stage_tasks.list_for_episode(episode_id)
         stage_tasks = [_to_stage_task_summary(item) for item in stage_task_models]
 
-        shots = [_to_shot_summary(item) for item in self.shots.list_current_for_episode(episode_id)]
+        # Find the latest visual_spec document from already-queried documents
+        visual_spec_doc_id = None
+        visual_spec_docs = [
+            doc for doc in all_documents
+            if doc.document_type == "visual_spec"
+        ]
+        if visual_spec_docs:
+            # Sort by version descending to get the latest
+            visual_spec_docs.sort(key=lambda d: d.version, reverse=True)
+            visual_spec_doc_id = visual_spec_docs[0].id
+
+        # Query shots once and include visual_spec reference
+        shot_models = self.shots.list_current_for_episode(episode_id)
+        shots = [_to_shot_summary(item, visual_spec_doc_id) for item in shot_models]
+        
         reviews = [_to_review_summary(item) for item in self.reviews.list_for_episode(episode_id)]
 
         qa_result = "pending"
@@ -252,5 +290,6 @@ class DatabaseStore:
                 "mode": "database-backed-workspace",
                 "shots_mode": "current-version-db-query",
                 "assets_mode": "selected-first",
+                "visual_spec_doc_id": str(visual_spec_doc_id) if visual_spec_doc_id else None,
             },
         )

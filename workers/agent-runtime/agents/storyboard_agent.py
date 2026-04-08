@@ -312,11 +312,13 @@ class StoryboardAgent(BaseAgent):
         
         Implements Requirement 6.2: Validate shot structure
         Implements Requirement 6.4: Validate visual_spec fields
+        Implements Requirement 1.1, 2.1: Validate using ShotValidationService
         """
         if not self.validator:
             schema = self.get_output_schema()
             required = schema.get("required", [])
             errors = []
+            warnings = []
             
             for field in required:
                 if field not in reviewed or reviewed[field] is None:
@@ -346,10 +348,52 @@ class StoryboardAgent(BaseAgent):
                                 "error_type": "missing_required",
                                 "message": f"Required shot field '{field}' is empty"
                             })
+                    
+                    # Validate visual_constraints structure for each shot
+                    # This validates the structure that will be stored in Shot.visual_constraints_jsonb
+                    visual_constraints = {
+                        "render_prompt": shot.get("render_prompt", ""),
+                        "style_keywords": shot.get("style_keywords", []),
+                        "composition": shot.get("composition", ""),
+                        "character_refs": shot.get("character_refs", [])
+                    }
+                    
+                    # Use ShotValidationService if available in database mode
+                    if self.db and hasattr(self.db, 'query'):
+                        try:
+                            from app.services.shot_validation_service import ShotValidationService
+                            
+                            validation_service = ShotValidationService(self.db)
+                            vc_result = validation_service.validate_visual_constraints_schema(
+                                visual_constraints,
+                                shot_id=shot.get("shot_id"),
+                                episode_id=None
+                            )
+                            
+                            # Add errors from validation service
+                            for error in vc_result.errors:
+                                errors.append({
+                                    "field_path": f"shots[{idx}].{error.field_path}",
+                                    "error_type": error.error_type,
+                                    "message": error.message
+                                })
+                            
+                            # Add warnings from validation service
+                            for warning in vc_result.warnings:
+                                warnings.append({
+                                    "field_path": f"shots[{idx}].{warning.field_path}",
+                                    "warning_type": warning.warning_type,
+                                    "message": warning.message,
+                                    "suggestion": warning.suggestion
+                                })
+                        except ImportError:
+                            # ShotValidationService not available, skip additional validation
+                            pass
             
             return {
                 "is_valid": len(errors) == 0,
-                "errors": errors
+                "errors": errors,
+                "warnings": warnings
             }
         
         validation_result = self.validator.validate(
@@ -367,7 +411,8 @@ class StoryboardAgent(BaseAgent):
                     "message": e.message
                 }
                 for e in validation_result.errors
-            ]
+            ],
+            "warnings": getattr(validation_result, 'warnings', [])
         }
     
     def committer(self, valid: Dict[str, Any], task_input: StageTaskInput) -> Dict[str, Any]:
@@ -376,6 +421,7 @@ class StoryboardAgent(BaseAgent):
         
         Implements Requirement 6.2: Create shot records with all required fields
         Implements Requirement 6.3: Associate shots with episode_id
+        Implements Requirement 1.1, 2.1: Validate created shots
         """
         if not self.db:
             # Mock mode - return mock refs
@@ -403,10 +449,12 @@ class StoryboardAgent(BaseAgent):
         from app.repositories.document_repository import DocumentRepository
         from app.repositories.shot_repository import ShotRepository
         from app.repositories.episode_repository import EpisodeRepository
+        from app.services.shot_validation_service import ShotValidationService
         
         doc_repo = DocumentRepository(self.db)
         shot_repo = ShotRepository(self.db)
         episode_repo = EpisodeRepository(self.db)
+        validation_service = ShotValidationService(self.db)
         
         # Create visual_spec document
         doc_version = doc_repo.latest_version_for_episode_and_type(
@@ -483,6 +531,58 @@ class StoryboardAgent(BaseAgent):
         
         self.db.flush()
         
+        # Validate created shots (Requirement 1.1, 2.1)
+        quality_notes = [
+            f"Generated {len(created_shots)} shots",
+            f"Total duration: {valid.get('overall_duration_ms', 0)}ms",
+            f"Visual style: {valid.get('visual_style', 'N/A')}"
+        ]
+        
+        # Run validation on created shots
+        validation_errors = []
+        validation_warnings = []
+        
+        for shot in created_shots:
+            # Validate shot completeness
+            completeness_result = validation_service.validate_shot_completeness(shot)
+            validation_errors.extend(completeness_result.errors)
+            validation_warnings.extend(completeness_result.warnings)
+            
+            # Validate visual_constraints schema
+            vc_result = validation_service.validate_visual_constraints_schema(
+                shot.visual_constraints_jsonb,
+                shot_id=str(shot.id),
+                episode_id=str(shot.episode_id)
+            )
+            validation_errors.extend(vc_result.errors)
+            validation_warnings.extend(vc_result.warnings)
+        
+        # Validate Shot-visual_spec consistency
+        consistency_result = validation_service.validate_shot_visual_spec_consistency(
+            task_input.episode_id,
+            version=shot_version
+        )
+        validation_errors.extend(consistency_result.errors)
+        validation_warnings.extend(consistency_result.warnings)
+        
+        # Log validation results
+        if validation_errors:
+            error_summary = f"Validation found {len(validation_errors)} errors"
+            quality_notes.append(f"⚠️ {error_summary}")
+            print(f"[StoryboardAgent] {error_summary}")
+            for error in validation_errors[:5]:  # Log first 5 errors
+                print(f"  - [{error.error_type}] {error.field_path}: {error.message}")
+        else:
+            quality_notes.append("✓ All shots passed validation")
+            print("[StoryboardAgent] All shots passed validation")
+        
+        if validation_warnings:
+            warning_summary = f"Validation found {len(validation_warnings)} warnings"
+            quality_notes.append(f"ℹ️ {warning_summary}")
+            print(f"[StoryboardAgent] {warning_summary}")
+            for warning in validation_warnings[:3]:  # Log first 3 warnings
+                print(f"  - [{warning.warning_type}] {warning.field_path}: {warning.message}")
+        
         return {
             "documents": [
                 DocumentRef(
@@ -499,11 +599,7 @@ class StoryboardAgent(BaseAgent):
                 )
                 for shot in created_shots
             ],
-            "quality_notes": [
-                f"Generated {len(created_shots)} shots",
-                f"Total duration: {valid.get('overall_duration_ms', 0)}ms",
-                f"Visual style: {valid.get('visual_style', 'N/A')}"
-            ],
+            "quality_notes": quality_notes,
             "token_usage": self._token_usage
         }
     

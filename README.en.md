@@ -254,16 +254,23 @@ Access: `http://localhost:3000`
 - ✅ Error handling and retry logic
 - ✅ Unit test suite (39 tests, 89% coverage)
 - ✅ Property-based testing framework
+- ✅ Media generation pipeline (image rendering, TTS, subtitles, preview export)
+- ✅ Object storage service (MinIO integration)
+- ✅ Shot data structure and validation service
+- ✅ Asset selection and management service
 
 **In Progress**:
-- 🔄 Integration tests
+- 🔄 Media pipeline end-to-end testing
 - 🔄 Frontend workspace UI
 - 🔄 Temporal workflow integration
+- 🔄 Image provider adapters (Stable Diffusion)
 
 **Planned**:
-- 📋 Media generation agents
+- 📋 Real image generation integration (Stable Diffusion/DALL-E)
+- 📋 Real TTS integration (Azure TTS)
 - 📋 QA agent
 - 📋 Human review UI
+- 📋 Video composition service
 
 ## Technical Highlights
 

@@ -365,17 +365,23 @@ npm run dev
 - ✅ 执行日志和指标
 - ✅ 单元测试套件（39 个测试通过）
 - ✅ 基于属性的测试框架搭建
+- ✅ 媒体生成管道（图像渲染、TTS、字幕生成、预览导出）
+- ✅ 对象存储服务（MinIO 集成）
+- ✅ 镜头数据结构和验证服务
+- ✅ 资产选择和管理服务
 
 **进行中**：
-- 🔄 真实数据库集成测试
+- 🔄 媒体管道端到端测试
 - 🔄 前端工作区 UI
 - 🔄 Temporal 工作流集成
+- 🔄 图像提供商适配器（Stable Diffusion）
 
 **计划中**：
-- 📋 媒体生成 Agent（图像、视频）
+- 📋 真实图像生成集成（Stable Diffusion/DALL-E）
+- 📋 真实 TTS 集成（Azure TTS）
 - 📋 QA Agent 质量保证
 - 📋 人工审核 UI
-- 📋 资产管理系统
+- 📋 视频合成服务
 
 ## 🎓 技术亮点
 
@@ -391,6 +397,18 @@ npm run dev
 
 ## 📚 文档
 
+### 快速开始
+- **[快速开始指南](apps/api/QUICKSTART.md)** - 如何运行项目
+- **[故障排查指南](apps/api/TROUBLESHOOTING.md)** - 常见问题解决
+- **[端到端测试指南](apps/api/E2E_TEST_GUIDE.md)** - 如何运行测试
+
+### 工程文档
+- **[系统架构蓝图](docs/engineering/SYSTEM-BLUEPRINT.md)** - 系统设计总图
+- **[交付计划](docs/engineering/DELIVERY-PLAN.md)** - 开发路线图和迭代计划
+- **[Iteration 2 完成总结](docs/engineering/ITERATION2_NEXT_STEPS.md)** - 当前进度和下一步
+- **[工程文档索引](docs/engineering/README.md)** - 完整文档列表
+
+### 产品和设计
 - **产品规格**：`docs/product/` - 产品愿景、MVP 计划、PRD
 - **技术文档**：`docs/engineering/` - API 契约、Agent 架构、工作流设计
 - **设计系统**：`docs/design/` - UI 组件、设计 token、风格指南

@@ -25,14 +25,14 @@ agent_runtime_path = Path(__file__).parent.parent.parent.parent.parent / "worker
 if str(agent_runtime_path) not in sys.path:
     sys.path.insert(0, str(agent_runtime_path))
 
-from base_agent import StageTaskInput, StageTaskOutput, DocumentRef, LockedRef
-from brief_agent import BriefAgent
-from story_bible_agent import StoryBibleAgent
-from character_agent import CharacterAgent
-from script_agent import ScriptAgent
-from storyboard_agent import StoryboardAgent
-from mock_llm_service import MockLLMService
-from validator import Validator
+from agents.base_agent import StageTaskInput, StageTaskOutput, DocumentRef, LockedRef
+from agents.brief_agent import BriefAgent
+from agents.story_bible_agent import StoryBibleAgent
+from agents.character_agent import CharacterAgent
+from agents.script_agent import ScriptAgent
+from agents.storyboard_agent import StoryboardAgent
+from services.mock_llm_service import MockLLMService
+from services.validator import Validator
 
 TEXT_STAGE_SEQUENCE = ["brief", "story_bible", "character", "script", "storyboard"]
 
