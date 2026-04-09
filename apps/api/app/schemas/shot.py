@@ -82,3 +82,75 @@ class UpdateShotRequest(BaseModel):
         None,
         description="ID of the user making the edit (for audit trail)"
     )
+
+
+
+class AssetResponse(BaseModel):
+    """
+    Response schema for Asset data.
+    
+    Implements Requirements:
+    - 8.1: Display asset details
+    - 8.2: Include selection status
+    - 8.4: Include selection metadata
+    """
+    id: UUID
+    project_id: UUID
+    episode_id: Optional[UUID] = None
+    stage_task_id: Optional[UUID] = None
+    shot_id: Optional[UUID] = None
+    
+    # Asset information
+    asset_type: str
+    storage_key: str
+    mime_type: str
+    size_bytes: int
+    
+    # Media metadata
+    duration_ms: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    checksum_sha256: Optional[str] = None
+    quality_score: Optional[float] = None
+    
+    # Selection status
+    is_selected: bool
+    version: int
+    
+    # Metadata including selection history
+    metadata_jsonb: Dict[str, Any] = Field(default_factory=dict)
+    
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class AssetListResponse(BaseModel):
+    """
+    Response schema for list of assets.
+    
+    Implements Requirements:
+    - 8.1: Return complete asset list for a shot
+    """
+    assets: List[AssetResponse]
+    total_count: int
+    shot_id: UUID
+
+
+class SelectAssetRequest(BaseModel):
+    """
+    Request schema for selecting a primary asset.
+    
+    Implements Requirements:
+    - 8.1: Select primary asset
+    - 8.4: Record selection source
+    """
+    asset_type: Optional[str] = Field(
+        None,
+        description="Optional filter by asset type to ensure uniqueness within type"
+    )
+    selected_by: Optional[str] = Field(
+        None,
+        description="Identifier of who made the selection (user ID or 'system')"
+    )

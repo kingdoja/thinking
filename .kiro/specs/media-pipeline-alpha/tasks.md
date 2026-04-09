@@ -404,7 +404,13 @@
     - 测试错误处理
     - _需求: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 8. Media Workflow 编排
+- [x] 8. Media Workflow 编排
+
+
+
+
+
+
 
 
 
@@ -451,7 +457,13 @@
     - _需求: 10.3, 10.4_
 
 
-  - [ ] 8.4 实现 StageTask 记录管理
+
+  - [x] 8.4 实现 StageTask 记录管理
+
+
+
+
+
 
 
 
@@ -488,12 +500,31 @@
     - 测试 StageTask 创建
     - _需求: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-- [ ] 9. Asset Selection 功能
+- [x] 9. Asset Selection 功能
 
 
 
 
-  - [ ] 9.1 实现 Asset Selection Service
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  - [x] 9.1 实现 Asset Selection Service
+
+
 
 
     - 创建 AssetSelectionService 类
@@ -502,14 +533,24 @@
     - 确保主资产唯一性
     - _需求: 8.1, 8.2, 8.3_
 
-  - [ ] 9.2 创建 Asset Selection API 端点
+  - [x] 9.2 创建 Asset Selection API 端点
+
+
 
 
     - POST /shots/{shot_id}/assets/{asset_id}/select - 选择主资产
     - GET /shots/{shot_id}/assets - 获取候选资产列表
     - _需求: 8.1, 8.2_
 
-  - [ ] 9.3 实现选择历史记录
+
+  - [x] 9.3 实现选择历史记录
+
+
+
+
+
+
+
 
 
     - 记录选择时间
@@ -524,12 +565,19 @@
     - 测试选择历史
     - _需求: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 10. 性能监控和成本追踪
+- [x] 10. 性能监控和成本追踪
 
 
 
 
-  - [ ] 10.1 实现 Provider 调用监控
+
+
+
+
+
+
+  - [x] 10.1 实现 Provider 调用监控
+
 
 
     - 记录每次 Provider 调用
@@ -538,7 +586,9 @@
     - 记录 request_id
     - _需求: 13.1, 13.2, 13.4_
 
-  - [ ] 10.2 实现成本估算
+
+  - [x] 10.2 实现成本估算
+
 
 
     - 为 Image Provider 估算成本
@@ -546,7 +596,9 @@
     - 记录到 StageTask metrics
     - _需求: 13.1, 13.2_
 
-  - [ ] 10.3 实现性能指标聚合
+
+  - [x] 10.3 实现性能指标聚合
+
 
 
     - 聚合 Stage 级别指标

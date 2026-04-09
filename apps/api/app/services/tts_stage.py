@@ -26,6 +26,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.shot_repository import ShotRepository
 from app.repositories.stage_task_repository import StageTaskRepository
 from app.services.object_storage_service import ObjectStorageService
+from app.services.provider_monitor import ProviderCallMonitor
 
 
 @dataclass
@@ -102,6 +103,7 @@ class TTSStage:
         project_id: UUID,
         stage_task_id: UUID,
         max_concurrent: int = 5,
+        monitor: Optional["ProviderCallMonitor"] = None,
     ) -> TTSStageResult:
         """
         Execute the TTS Stage for an episode.
@@ -118,6 +120,10 @@ class TTSStage:
             TTSStageResult with execution details
         """
         start_time = time.time()
+
+        # Create a monitor for this execution if not provided
+        if monitor is None:
+            monitor = ProviderCallMonitor()
 
         self.stage_task_repo.update_status(
             stage_task_id,
@@ -169,7 +175,7 @@ class TTSStage:
                 )
 
             # 4. Synthesize audio in parallel (Requirements 11.2, 11.3)
-            results = await self._synthesize_audio_parallel(dialogues, max_concurrent)
+            results = await self._synthesize_audio_parallel(dialogues, max_concurrent, monitor)
 
             # 5. Upload audio and create Asset records (Requirements 5.3, 5.4, 9.1, 9.3)
             assets_created = await self._upload_and_create_assets(
@@ -185,13 +191,18 @@ class TTSStage:
             failed = [r for r in results if not r.success]
 
             total_chars = sum(r.character_count or 0 for r in successful)
+            monitor_metrics = monitor.to_metrics_dict()
             metrics = {
                 "duration_ms": execution_time_ms,
-                "provider_calls": len(results),
-                "success_count": len(successful),
-                "failure_count": len(failed),
+                "provider_calls": monitor_metrics.get("provider_calls", len(results)),
+                "success_count": monitor_metrics.get("success_count", len(successful)),
+                "failure_count": monitor_metrics.get("failure_count", len(failed)),
                 "total_characters": total_chars,
-                "estimated_cost": total_chars * 0.000016,  # ~$16 per 1M chars placeholder
+                "estimated_cost_usd": monitor_metrics.get("estimated_cost_usd", (total_chars / 1000.0) * 0.016),
+                "tts_characters": monitor_metrics.get("tts_characters", total_chars),
+                "tts_cost_usd": monitor_metrics.get("tts_cost_usd", 0.0),
+                "call_details": monitor_metrics.get("call_details", []),
+                "errors": monitor_metrics.get("errors", []),
             }
 
             # 7. Determine final status
@@ -205,6 +216,12 @@ class TTSStage:
                 final_status = "failed"
                 task_status = "failed"
 
+            # Persist metrics to StageTask (Requirement 13.2)
+            self.stage_task_repo.update_metrics(
+                stage_task_id,
+                metrics=metrics,
+                commit=False,
+            )
             self.stage_task_repo.update_status(
                 stage_task_id,
                 task_status,
@@ -346,6 +363,7 @@ class TTSStage:
         self,
         dialogues: List[DialogueItem],
         max_concurrent: int,
+        monitor: "ProviderCallMonitor",
     ) -> List[TTSResult]:
         """
         Synthesize audio for all dialogue items in parallel.
@@ -358,7 +376,7 @@ class TTSStage:
 
         async def synthesize_with_semaphore(item: DialogueItem) -> TTSResult:
             async with semaphore:
-                return await self._synthesize_single_with_retry(item)
+                return await self._synthesize_single_with_retry(item, monitor)
 
         tasks = [synthesize_with_semaphore(d) for d in dialogues]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -382,17 +400,18 @@ class TTSStage:
     async def _synthesize_single_with_retry(
         self,
         item: DialogueItem,
+        monitor: "ProviderCallMonitor",
     ) -> TTSResult:
         """
-        Synthesize a single dialogue item with exponential-backoff retry.
+        Synthesize a single dialogue item with exponential-backoff retry,
+        recording each attempt via the monitor.
 
-        Permanent errors (is_retryable=False) are not retried.
-
-        Implements Requirements 12.1, 12.2, 12.3
+        Implements Requirements 12.1, 12.2, 12.3, 13.1
         """
         last_error: Optional[str] = None
 
         for attempt in range(self.MAX_RETRIES):
+            t0 = time.time()
             try:
                 loop = asyncio.get_event_loop()
                 result: TTSResult = await loop.run_in_executor(
@@ -405,23 +424,57 @@ class TTSStage:
                     ),
                 )
 
+                duration_ms = int((time.time() - t0) * 1000)
+                # Record the call (Requirement 13.1)
+                monitor.add_record(
+                    provider_name=self.tts_provider.provider_name,
+                    operation="synthesize_speech",
+                    duration_ms=duration_ms,
+                    success=result.success,
+                    request_id=result.request_id,
+                    error=result.error if not result.success else None,
+                    extra={
+                        "shot_id": str(item.shot_id),
+                        "character_count": result.character_count or len(item.text),
+                    },
+                )
+
                 if result.success:
                     return result
 
-                # Provider returned a failure result (not an exception)
                 last_error = result.error
-                # Non-retryable failure from provider result — stop immediately
                 break
 
             except TTSProviderError as exc:
+                duration_ms = int((time.time() - t0) * 1000)
                 last_error = str(exc)
+
+                monitor.add_record(
+                    provider_name=self.tts_provider.provider_name,
+                    operation="synthesize_speech",
+                    duration_ms=duration_ms,
+                    success=False,
+                    request_id=exc.request_id,
+                    error=str(exc),
+                    extra={"shot_id": str(item.shot_id), "attempt": attempt},
+                )
+
                 if not exc.is_retryable or attempt == self.MAX_RETRIES - 1:
                     break
                 wait_secs = 2 ** attempt
                 await asyncio.sleep(wait_secs)
 
             except Exception as exc:
+                duration_ms = int((time.time() - t0) * 1000)
                 last_error = f"Unexpected error: {exc}"
+                monitor.add_record(
+                    provider_name=self.tts_provider.provider_name,
+                    operation="synthesize_speech",
+                    duration_ms=duration_ms,
+                    success=False,
+                    error=last_error,
+                    extra={"shot_id": str(item.shot_id)},
+                )
                 break
 
         return TTSResult(

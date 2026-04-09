@@ -89,6 +89,7 @@ def mock_stage_task_repo():
     repo = Mock()
     repo.create = Mock(return_value=Mock(id=uuid4()))
     repo.update_status = Mock()
+    repo.update_metrics = Mock()
     repo.latest_by_stage = Mock(return_value=Mock(id=uuid4()))
     return repo
 
@@ -378,3 +379,100 @@ def test_determine_final_status_all_failed(media_workflow_service):
         total_stages=4
     )
     assert status == "media_failed"
+
+
+@pytest.mark.asyncio
+async def test_stage_task_metrics_recording(
+    media_workflow_service,
+    mock_stage_task_repo,
+):
+    """Test that execution metrics are recorded in StageTask."""
+    # Arrange
+    project = Mock(id=uuid4())
+    episode = Mock(id=uuid4())
+    workflow_run = Mock(id=uuid4())
+    
+    # Act
+    await media_workflow_service.execute_media_chain(
+        project=project,
+        episode=episode,
+        workflow_run=workflow_run,
+    )
+    
+    # Assert - verify update_metrics was called for each stage
+    assert mock_stage_task_repo.update_metrics.call_count == 4
+    
+    # Verify metrics contain expected fields
+    for call in mock_stage_task_repo.update_metrics.call_args_list:
+        metrics = call.kwargs['metrics']
+        assert 'execution_time_ms' in metrics
+        assert 'assets_created' in metrics
+        assert 'shots_processed' in metrics
+        assert 'shots_failed' in metrics
+
+
+@pytest.mark.asyncio
+async def test_stage_task_status_updates(
+    media_workflow_service,
+    mock_stage_task_repo,
+):
+    """Test that StageTask status is updated correctly during execution."""
+    # Arrange
+    project = Mock(id=uuid4())
+    episode = Mock(id=uuid4())
+    workflow_run = Mock(id=uuid4())
+    
+    # Act
+    await media_workflow_service.execute_media_chain(
+        project=project,
+        episode=episode,
+        workflow_run=workflow_run,
+    )
+    
+    # Assert - verify update_status was called
+    # Should be called twice per stage: once to set "running", once to set final status
+    assert mock_stage_task_repo.update_status.call_count >= 4
+    
+    # Verify final status updates include finished_at
+    final_status_calls = [
+        call for call in mock_stage_task_repo.update_status.call_args_list
+        if 'finished_at' in call.kwargs
+    ]
+    assert len(final_status_calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_stage_task_failure_metrics(
+    media_workflow_service,
+    mock_stage_task_repo,
+    mock_image_render_stage,
+):
+    """Test that failure metrics are recorded when stage fails."""
+    # Arrange
+    project = Mock(id=uuid4())
+    episode = Mock(id=uuid4())
+    workflow_run = Mock(id=uuid4())
+    
+    # Make image render stage raise an exception
+    mock_image_render_stage.execute = AsyncMock(side_effect=Exception("Provider error"))
+    
+    # Act
+    result = await media_workflow_service.execute_media_chain(
+        project=project,
+        episode=episode,
+        workflow_run=workflow_run,
+    )
+    
+    # Assert
+    assert result.status == "media_failed"
+    
+    # Verify failure metrics were recorded
+    metrics_calls = [
+        call for call in mock_stage_task_repo.update_metrics.call_args_list
+    ]
+    assert len(metrics_calls) >= 1
+    
+    # Check that failure metrics contain error_type
+    failure_metrics = metrics_calls[0].kwargs['metrics']
+    assert 'error_type' in failure_metrics
+    assert failure_metrics['error_type'] == 'Exception'

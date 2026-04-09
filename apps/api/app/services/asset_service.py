@@ -4,9 +4,10 @@ Asset Service
 Provides business logic for asset management, including primary asset selection.
 
 Requirements:
-- 10.2: Select primary asset for a shot
-- 10.3: Ensure only one primary asset per shot
-- 10.4: Record selection operation
+- 8.1: Select primary asset for a shot
+- 8.2: Ensure only one primary asset per shot
+- 8.3: Get candidate assets for a shot
+- 8.4: Record selection history
 """
 
 from typing import List, Optional
@@ -42,13 +43,13 @@ class AssetService:
         This ensures only one asset is marked as primary for the given shot
         and asset type combination.
         
-        Requirements: 10.2, 10.3, 10.4
+        Requirements: 8.1, 8.2, 8.4
         
         Args:
             shot_id: Shot UUID
             asset_id: Asset UUID to mark as primary
             asset_type: Optional filter by asset type (e.g., 'keyframe')
-            selected_by: Optional identifier of who made the selection
+            selected_by: Optional identifier of who made the selection (user/system)
             
         Returns:
             Updated AssetModel instance
@@ -70,7 +71,7 @@ class AssetService:
                 asset_type=asset_type
             )
             
-            # Record selection metadata
+            # Record selection metadata (Requirement 8.4)
             if not asset.metadata_jsonb:
                 asset.metadata_jsonb = {}
             
@@ -133,17 +134,46 @@ class AssetService:
         """
         Get all candidate assets for a shot.
         
+        Requirements: 8.1, 8.3
+        
         Args:
             shot_id: Shot UUID
             asset_type: Optional filter by asset type
             
         Returns:
-            List of AssetModel instances
+            List of AssetModel instances ordered by created_at descending
         """
         return self.asset_repo.get_assets_by_shot(
             shot_id=shot_id,
             asset_type=asset_type
         )
+    
+    def get_selection_history(
+        self,
+        asset_id: UUID
+    ) -> List[dict]:
+        """
+        Get selection history for an asset.
+        
+        Requirements: 8.4
+        
+        Args:
+            asset_id: Asset UUID
+            
+        Returns:
+            List of selection history entries
+            
+        Raises:
+            ValueError: If asset not found
+        """
+        asset = self.db.get(AssetModel, asset_id)
+        if not asset:
+            raise ValueError(f"Asset {asset_id} not found")
+        
+        if not asset.metadata_jsonb:
+            return []
+        
+        return asset.metadata_jsonb.get("selection_history", [])
     
     def create_asset(
         self,

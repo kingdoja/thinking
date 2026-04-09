@@ -85,6 +85,7 @@ class StageTaskModel(Base):
     review_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metrics_jsonb: Mapped[dict] = mapped_column(JSONB, default=dict)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

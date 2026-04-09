@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.providers.image_provider import ImageProviderAdapter, ImageGenerationResult, ProviderError
 from app.services.object_storage_service import ObjectStorageService
 from app.services.image_render_input_builder import ImageRenderInputBuilder, ImageRenderInput
+from app.services.provider_monitor import ProviderCallMonitor
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.shot_repository import ShotRepository
 from app.repositories.stage_task_repository import StageTaskRepository
@@ -90,7 +91,8 @@ class ImageRenderStage:
         episode_id: UUID,
         project_id: UUID,
         stage_task_id: UUID,
-        max_concurrent: int = 5
+        max_concurrent: int = 5,
+        monitor: Optional["ProviderCallMonitor"] = None,
     ) -> StageExecutionResult:
         """
         Execute the Image Render Stage for an episode.
@@ -107,6 +109,10 @@ class ImageRenderStage:
             StageExecutionResult: Execution result with metrics
         """
         start_time = time.time()
+        
+        # Create a monitor for this execution if not provided
+        if monitor is None:
+            monitor = ProviderCallMonitor()
         
         # Update stage task status to running
         self.stage_task_repo.update_status(
@@ -141,7 +147,8 @@ class ImageRenderStage:
             # 2. Generate images in parallel (Requirement 11.1)
             results = await self._generate_images_parallel(
                 inputs,
-                max_concurrent
+                max_concurrent,
+                monitor,
             )
             
             # 3. Upload images and create assets (Requirement 2.3, 2.4)
@@ -156,17 +163,23 @@ class ImageRenderStage:
             execution_time_ms = int((time.time() - start_time) * 1000)
             successful_results = [r for r in results if r.success]
             failed_results = [r for r in results if not r.success]
-            
+
+            # Merge monitor metrics with stage-level metrics (Req 13.1, 13.2)
+            monitor_metrics = monitor.to_metrics_dict()
             metrics = {
                 "duration_ms": execution_time_ms,
-                "provider_calls": len(results),
-                "success_count": len(successful_results),
-                "failure_count": len(failed_results),
-                "estimated_cost": len(successful_results) * 0.05,  # Placeholder cost
+                "provider_calls": monitor_metrics.get("provider_calls", len(results)),
+                "success_count": monitor_metrics.get("success_count", len(successful_results)),
+                "failure_count": monitor_metrics.get("failure_count", len(failed_results)),
+                "estimated_cost_usd": monitor_metrics.get("estimated_cost_usd", len(successful_results) * 0.05),
+                "image_calls": monitor_metrics.get("image_calls", len(successful_results)),
+                "image_cost_usd": monitor_metrics.get("image_cost_usd", 0.0),
                 "retry_count": sum(
                     (r.provider_metadata or {}).get('retry_count', 0)
                     for r in results
-                )
+                ),
+                "call_details": monitor_metrics.get("call_details", []),
+                "errors": monitor_metrics.get("errors", []),
             }
             
             # 5. Determine final status
@@ -180,20 +193,17 @@ class ImageRenderStage:
                 final_status = "failed"
                 task_status = "failed"
             
-            # 6. Update stage task
+            # 6. Update stage task with metrics and final status
+            self.stage_task_repo.update_metrics(
+                stage_task_id,
+                metrics=metrics,
+                commit=False,
+            )
             self.stage_task_repo.update_status(
                 stage_task_id,
                 task_status,
                 finished_at=datetime.utcnow()
             )
-            
-            # Update metrics in stage task (if the model supports it)
-            stage_task = self.stage_task_repo.get(stage_task_id)
-            if stage_task:
-                # Store metrics in the database
-                # Note: This requires a migration to add metrics_jsonb column
-                # For now, we'll just pass it in the result
-                pass
             
             return StageExecutionResult(
                 status=final_status,
@@ -229,32 +239,34 @@ class ImageRenderStage:
     async def _generate_images_parallel(
         self,
         inputs: List[ImageRenderInput],
-        max_concurrent: int
+        max_concurrent: int,
+        monitor: "ProviderCallMonitor",
     ) -> List[ImageGenerationResult]:
         """
         Generate images in parallel with concurrency control.
-        
+
         Implements Requirements: 11.1, 11.3
-        
+
         Args:
             inputs: List of image render inputs
             max_concurrent: Maximum concurrent generations
-            
+            monitor: ProviderCallMonitor for recording calls
+
         Returns:
             List of ImageGenerationResult
         """
         semaphore = asyncio.Semaphore(max_concurrent)
-        
+
         async def generate_with_semaphore(input_data: ImageRenderInput):
             async with semaphore:
-                return await self._generate_single_image_with_retry(input_data)
-        
+                return await self._generate_single_image_with_retry(input_data, monitor)
+
         # Create tasks for all inputs
         tasks = [generate_with_semaphore(inp) for inp in inputs]
-        
+
         # Execute all tasks and gather results
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Convert exceptions to failed results
         processed_results = []
         for i, result in enumerate(results):
@@ -268,33 +280,34 @@ class ImageRenderStage:
                 )
             else:
                 processed_results.append(result)
-        
+
         return processed_results
     
     async def _generate_single_image_with_retry(
         self,
         input_data: ImageRenderInput,
+        monitor: "ProviderCallMonitor",
         max_retries: int = 3
     ) -> ImageGenerationResult:
         """
-        Generate a single image with retry logic.
-        
-        Implements Requirements: 12.1, 12.2, 12.3
-        
+        Generate a single image with retry logic, recording each attempt.
+
+        Implements Requirements: 12.1, 12.2, 12.3, 13.1
+
         Args:
             input_data: Image render input
+            monitor: ProviderCallMonitor for recording calls
             max_retries: Maximum number of retries
-            
+
         Returns:
             ImageGenerationResult
         """
         last_error = None
         retry_count = 0
-        
+
         for attempt in range(max_retries):
+            t0 = time.time()
             try:
-                # Call the image provider (synchronous call in async context)
-                # For Python 3.8 compatibility, we use run_in_executor
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
                     None,
@@ -307,43 +320,69 @@ class ImageRenderStage:
                         shot_id=input_data.shot_id
                     )
                 )
-                
-                # Store retry count in metadata
+
+                duration_ms = int((time.time() - t0) * 1000)
+                # Record successful call (Requirement 13.1)
+                monitor.add_record(
+                    provider_name=self.image_provider.provider_name,
+                    operation="generate_image",
+                    duration_ms=duration_ms,
+                    success=result.success,
+                    request_id=result.request_id,
+                    error=result.error if not result.success else None,
+                    extra={"shot_id": str(input_data.shot_id)},
+                )
+
                 if result.provider_metadata is None:
                     result.provider_metadata = {}
                 result.provider_metadata['retry_count'] = retry_count
                 return result
-                
+
             except ProviderError as e:
+                duration_ms = int((time.time() - t0) * 1000)
                 last_error = e
                 retry_count += 1
-                
-                # Check if error is retryable (Requirement 12.2)
+
+                # Record failed call (Requirement 13.1)
+                monitor.add_record(
+                    provider_name=self.image_provider.provider_name,
+                    operation="generate_image",
+                    duration_ms=duration_ms,
+                    success=False,
+                    request_id=e.request_id,
+                    error=str(e),
+                    extra={"shot_id": str(input_data.shot_id), "attempt": attempt},
+                )
+
                 if not e.is_retryable or attempt == max_retries - 1:
-                    # Permanent error or max retries reached
-                    result = ImageGenerationResult(
+                    return ImageGenerationResult(
                         success=False,
                         error=str(e),
                         shot_id=input_data.shot_id,
                         request_id=e.request_id,
                         provider_metadata={'retry_count': retry_count}
                     )
-                    return result
-                
-                # Exponential backoff (Requirement 12.1)
+
                 wait_time = 2 ** attempt
                 await asyncio.sleep(wait_time)
-                
+
             except Exception as e:
-                # Unexpected error
+                duration_ms = int((time.time() - t0) * 1000)
+                monitor.add_record(
+                    provider_name=self.image_provider.provider_name,
+                    operation="generate_image",
+                    duration_ms=duration_ms,
+                    success=False,
+                    error=str(e),
+                    extra={"shot_id": str(input_data.shot_id)},
+                )
                 return ImageGenerationResult(
                     success=False,
                     error=f"Unexpected error: {str(e)}",
                     shot_id=input_data.shot_id,
                     provider_metadata={'retry_count': retry_count}
                 )
-        
-        # Should not reach here, but just in case
+
         return ImageGenerationResult(
             success=False,
             error=f"Max retries exceeded: {last_error}",

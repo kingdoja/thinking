@@ -431,3 +431,98 @@ def test_select_primary_asset_by_type(test_session, test_project, test_episode):
     assert keyframe2.is_selected is True
     # Audio should still be selected (different type)
     assert audio1.is_selected is True
+
+
+
+def test_get_candidate_assets(test_session, test_project, test_episode):
+    """Test getting candidate assets for a shot (Requirement 8.3)."""
+    asset_service = AssetService(test_session)
+    shot_id = uuid4()
+    
+    # Create multiple assets for the same shot
+    asset1 = asset_service.create_asset(
+        project_id=test_project.id,
+        episode_id=test_episode.id,
+        shot_id=shot_id,
+        asset_type="keyframe",
+        storage_key="s3://bucket/keyframe1.png",
+        mime_type="image/png",
+        size_bytes=1024,
+    )
+    
+    asset2 = asset_service.create_asset(
+        project_id=test_project.id,
+        episode_id=test_episode.id,
+        shot_id=shot_id,
+        asset_type="keyframe",
+        storage_key="s3://bucket/keyframe2.png",
+        mime_type="image/png",
+        size_bytes=2048,
+    )
+    
+    test_session.commit()
+    
+    # Get candidate assets
+    candidates = asset_service.get_candidate_assets(shot_id)
+    
+    assert len(candidates) == 2
+    assert all(a.shot_id == shot_id for a in candidates)
+
+
+def test_get_selection_history(test_session, test_project, test_episode):
+    """Test getting selection history for an asset (Requirement 8.4)."""
+    asset_service = AssetService(test_session)
+    shot_id = uuid4()
+    
+    # Create an asset
+    asset = asset_service.create_asset(
+        project_id=test_project.id,
+        episode_id=test_episode.id,
+        shot_id=shot_id,
+        asset_type="keyframe",
+        storage_key="s3://bucket/keyframe.png",
+        mime_type="image/png",
+        size_bytes=1024,
+    )
+    
+    test_session.commit()
+    
+    # Initially no history
+    history = asset_service.get_selection_history(asset.id)
+    assert len(history) == 0
+    
+    # Select the asset
+    asset_service.select_primary_asset(
+        shot_id=shot_id,
+        asset_id=asset.id,
+        selected_by="user1"
+    )
+    test_session.commit()
+    
+    # Check history
+    history = asset_service.get_selection_history(asset.id)
+    assert len(history) == 1
+    assert history[0]["selected_by"] == "user1"
+    
+    # Select again
+    asset_service.select_primary_asset(
+        shot_id=shot_id,
+        asset_id=asset.id,
+        selected_by="user2"
+    )
+    test_session.commit()
+    
+    # Check history has both entries
+    history = asset_service.get_selection_history(asset.id)
+    assert len(history) == 2
+    assert history[0]["selected_by"] == "user1"
+    assert history[1]["selected_by"] == "user2"
+
+
+def test_get_selection_history_nonexistent_asset(test_session):
+    """Test getting selection history for non-existent asset."""
+    asset_service = AssetService(test_session)
+    fake_asset_id = uuid4()
+    
+    with pytest.raises(ValueError, match="not found"):
+        asset_service.get_selection_history(fake_asset_id)

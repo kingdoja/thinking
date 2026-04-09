@@ -76,3 +76,30 @@ class StageTaskRepository:
         else:
             self.db.flush()
         return stage_task
+
+    def update_metrics(self, task_id, metrics: dict, commit: bool = True):
+        """
+        Update the metrics_jsonb field for a stage task.
+        
+        Implements Requirement 10.5: Record execution metrics
+        
+        Args:
+            task_id: StageTask ID
+            metrics: Dictionary containing execution metrics
+            commit: Whether to commit the transaction
+            
+        Returns:
+            Updated StageTask model or None if not found
+        """
+        stage_task = self.get(task_id)
+        if stage_task is None:
+            return None
+
+        stage_task.metrics_jsonb = metrics
+        self.db.add(stage_task)
+        if commit:
+            self.db.commit()
+            self.db.refresh(stage_task)
+        else:
+            self.db.flush()
+        return stage_task

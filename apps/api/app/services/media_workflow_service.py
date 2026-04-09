@@ -165,14 +165,28 @@ class MediaWorkflowService:
                 errors.append(error_msg)
                 stages_failed.append(stage_type)
                 
-                # Mark stage task as failed
+                # Mark stage task as failed with metrics (Requirement 10.5)
                 stage_task = self.stage_task_repo.latest_by_stage(episode.id, stage_type)
                 if stage_task:
+                    # Record failure metrics
+                    failure_metrics = {
+                        'execution_time_ms': 0,
+                        'assets_created': 0,
+                        'shots_processed': 0,
+                        'shots_failed': 0,
+                        'error_type': type(e).__name__,
+                    }
+                    self.stage_task_repo.update_metrics(
+                        stage_task.id,
+                        metrics=failure_metrics,
+                        commit=False,
+                    )
                     self.stage_task_repo.update_status(
                         stage_task.id,
                         "failed",
                         finished_at=datetime.utcnow(),
                         error_message=str(e),
+                        commit=True,
                     )
                 
                 # Stop execution on unexpected errors
@@ -247,7 +261,7 @@ class MediaWorkflowService:
         Returns:
             Created StageTask model
         """
-        return self.stage_task_repo.create(
+        stage_task = self.stage_task_repo.create(
             workflow_run_id=workflow_run_id,
             project_id=project_id,
             episode_id=episode_id,
@@ -260,8 +274,19 @@ class MediaWorkflowService:
             review_required=False,
             review_status=None,
             started_at=None,
+            metrics_jsonb={},
             commit=True,
         )
+        
+        # Update status to running when created
+        self.stage_task_repo.update_status(
+            stage_task.id,
+            "running",
+            started_at=datetime.utcnow(),
+            commit=True,
+        )
+        
+        return stage_task
     
     async def _execute_stage(
         self,
@@ -404,7 +429,7 @@ class MediaWorkflowService:
         result: Dict[str, Any],
     ) -> None:
         """
-        Update StageTask with execution metrics.
+        Update StageTask with execution metrics and final status.
         
         Implements Requirement 10.5
         
@@ -412,11 +437,43 @@ class MediaWorkflowService:
             stage_task_id: StageTask ID
             result: Stage execution result with metrics
         """
-        # Note: This requires the metrics_jsonb column to exist in the database
-        # For now, we'll just pass - the metrics are already stored in the result
-        # In a future migration, we can add:
-        # UPDATE stage_tasks SET metrics_jsonb = result['metrics'] WHERE id = stage_task_id
-        pass
+        # Extract metrics from result
+        metrics = result.get('metrics', {})
+        
+        # Add high-level metrics from result
+        metrics['execution_time_ms'] = result.get('execution_time_ms', 0)
+        metrics['assets_created'] = result.get('assets_created', 0)
+        metrics['shots_processed'] = result.get('shots_processed', 0)
+        metrics['shots_failed'] = result.get('shots_failed', 0)
+        
+        # Determine final status
+        status = result.get('status', 'failed')
+        task_status_map = {
+            'succeeded': 'succeeded',
+            'partial_success': 'succeeded',
+            'failed': 'failed',
+        }
+        final_status = task_status_map.get(status, 'failed')
+        
+        # Update stage task with metrics and status
+        self.stage_task_repo.update_metrics(
+            stage_task_id,
+            metrics=metrics,
+            commit=False,
+        )
+        
+        # Update status and finished_at
+        error_message = None
+        if result.get('errors'):
+            error_message = "; ".join(result['errors'][:3])  # Store first 3 errors
+        
+        self.stage_task_repo.update_status(
+            stage_task_id,
+            final_status,
+            finished_at=datetime.utcnow(),
+            error_message=error_message,
+            commit=True,
+        )
     
     def _determine_final_status(
         self,
