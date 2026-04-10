@@ -33,6 +33,7 @@ MEDIA_STAGE_SEQUENCE = [
     "subtitle",
     "tts",
     "edit_export_preview",
+    "qa",  # QA check after media chain (Iteration 5)
 ]
 
 
@@ -69,6 +70,7 @@ class MediaWorkflowService:
         subtitle_stage: SubtitleGenerationStage,
         tts_stage: TTSStage,
         preview_export_stage: PreviewExportStage,
+        qa_stage=None,  # Optional QA stage (Iteration 5)
     ):
         """
         Initialize the Media Workflow Service.
@@ -79,12 +81,14 @@ class MediaWorkflowService:
             subtitle_stage: Subtitle generation stage instance
             tts_stage: TTS stage instance
             preview_export_stage: Preview export stage instance
+            qa_stage: QA stage instance (optional)
         """
         self.db = db
         self.image_render_stage = image_render_stage
         self.subtitle_stage = subtitle_stage
         self.tts_stage = tts_stage
         self.preview_export_stage = preview_export_stage
+        self.qa_stage = qa_stage
         
         self.stage_task_repo = StageTaskRepository(db)
         self.workflow_repo = WorkflowRepository(db)
@@ -151,6 +155,35 @@ class MediaWorkflowService:
                 if result.get('status') in ['succeeded', 'partial_success']:
                     stages_completed.append(stage_type)
                     total_assets_created += result.get('assets_created', 0)
+                    
+                    # Check if this stage requires review (Requirements 5.1, 5.2)
+                    if stage_task.review_required:
+                        # Update stage task to review_pending
+                        self.stage_task_repo.update_status(
+                            stage_task.id,
+                            "review_pending",
+                            review_status="pending",
+                            commit=False,
+                        )
+                        
+                        # Update workflow status to waiting_review
+                        self.workflow_repo.update_status(
+                            workflow_run.id,
+                            "waiting_review",
+                            commit=True,
+                        )
+                        
+                        # Stop execution and return partial result
+                        execution_time_ms = int((time.time() - start_time) * 1000)
+                        return MediaWorkflowResult(
+                            status="waiting_review",
+                            stages_completed=stages_completed,
+                            stages_failed=stages_failed,
+                            total_assets_created=total_assets_created,
+                            execution_time_ms=execution_time_ms,
+                            stage_results=stage_results,
+                            errors=errors,
+                        )
                 else:
                     stages_failed.append(stage_type)
                     errors.extend(result.get('errors', []))
@@ -340,6 +373,27 @@ class MediaWorkflowService:
                 stage_task_id=stage_task_id,
             )
             return self._convert_preview_result(result)
+        
+        elif stage_type == "qa":
+            # Execute QA stage (Iteration 5)
+            if self.qa_stage is None:
+                # QA stage not configured, skip
+                return {
+                    'status': 'succeeded',
+                    'assets_created': 0,
+                    'shots_processed': 0,
+                    'shots_failed': 0,
+                    'errors': [],
+                    'execution_time_ms': 0,
+                    'metrics': {},
+                }
+            
+            result = self.qa_stage.execute(
+                episode_id=episode_id,
+                project_id=project_id,
+                stage_task_id=stage_task_id,
+            )
+            return self._convert_qa_result(result)
             
         else:
             raise ValueError(f"Unknown stage type: {stage_type}")
@@ -391,6 +445,21 @@ class MediaWorkflowService:
             'metrics': result.metrics,
         }
     
+    def _convert_qa_result(self, result) -> Dict[str, Any]:
+        """Convert QAStageResult to dictionary."""
+        return {
+            'status': result.status,
+            'assets_created': 0,  # QA doesn't create assets
+            'shots_processed': 0,
+            'shots_failed': 0,
+            'errors': result.errors,
+            'execution_time_ms': result.execution_time_ms,
+            'metrics': {
+                'should_block': result.should_block,
+                'checks_executed': len(result.qa_results),
+            },
+        }
+    
     def _should_continue_after_failure(
         self,
         stage_type: str,
@@ -413,6 +482,11 @@ class MediaWorkflowService:
         # Continue if partial success (some assets were created)
         if status == 'partial_success':
             return True
+        
+        # For QA stage, check if it should block (Iteration 5)
+        if stage_type == 'qa':
+            should_block = result.get('metrics', {}).get('should_block', False)
+            return not should_block
         
         # For critical stages, stop on complete failure
         critical_stages = ['image_render']

@@ -186,6 +186,23 @@ class TextWorkflowService:
                 {"ref_type": ref.ref_type, "ref_id": ref.ref_id}
                 for ref in output.document_refs
             ]
+            
+            # Check if this stage requires review (Requirements 5.1, 5.2)
+            if stage_task.review_required:
+                logger.info(f"Stage {stage_type} requires review - pausing workflow")
+                
+                # Update stage task to review_pending
+                stage_task.task_status = "review_pending"
+                stage_task.review_status = "pending"
+                
+                # Update workflow status to waiting_review
+                self.workflows.update_status(workflow.id, "waiting_review", commit=False)
+                workflow.status = "waiting_review"
+                
+                # Commit and stop execution here
+                self.db.commit()
+                logger.info(f"Workflow paused for review at stage {stage_type}")
+                return {"workflow_status": workflow.status, "paused_at_stage": stage_type}
 
         logger.info(f"Text chain workflow completed successfully for episode {episode.id}")
         

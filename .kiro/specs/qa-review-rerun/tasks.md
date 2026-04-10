@@ -8,20 +8,30 @@
 
 ## 任务列表
 
-- [ ] 1. QA Runtime 基础框架
-  - [ ] 1.1 创建 QA Runtime 类
+- [x] 1. QA Runtime 基础框架
+
+
+
+
+  - [x] 1.1 创建 QA Runtime 类
+
+
     - 创建 QARuntime 类
     - 实现 execute_qa 方法
     - 集成 QARepository
     - _需求: 1.1, 1.2, 1.3_
 
-  - [ ] 1.2 实现 QA 报告生成
+  - [x] 1.2 实现 QA 报告生成
+
+
     - 创建 QAReport 记录
     - 记录检查结果到 issues_jsonb
     - 计算 score 和 severity
     - _需求: 1.2, 1.3_
 
-  - [ ] 1.3 集成 QA Stage 到 Workflow
+  - [x] 1.3 集成 QA Stage 到 Workflow
+
+
     - 在 workflow 中添加 qa Stage
     - 在 media chain 完成后执行 QA
     - 根据 QA 结果决定是否继续
@@ -33,26 +43,36 @@
     - 测试错误处理
     - _需求: 1.1, 1.2, 1.3_
 
-- [ ] 2. 规则检查实现
-  - [ ] 2.1 实现 Brief 规则检查
+- [x] 2. 规则检查实现
+
+
+
+
+
+  - [x] 2.1 实现 Brief 规则检查
+
+
     - 检查必填字段
     - 检查字段格式
     - 生成问题列表
     - _需求: 2.1_
 
-  - [ ] 2.2 实现 Character 规则检查
+  - [x] 2.2 实现 Character 规则检查
+
     - 检查角色数量
     - 检查角色字段完整性
     - 检查 visual_anchors
     - _需求: 2.2_
 
-  - [ ] 2.3 实现 Script 规则检查
+  - [x] 2.3 实现 Script 规则检查
+
     - 检查场景结构
     - 检查对白格式
     - 检查时长合理性
     - _需求: 2.3_
 
-  - [ ] 2.4 实现 Storyboard 规则检查
+  - [x] 2.4 实现 Storyboard 规则检查
+
     - 检查 Shot 数量
     - 检查总时长
     - 检查 Shot 结构
@@ -65,20 +85,29 @@
     - _需求: 2.1, 2.2, 2.3, 2.4, 2.5_
 
 
-- [ ] 3. 语义一致性检查
-  - [ ] 3.1 实现角色一致性检查
+- [x] 3. 语义一致性检查
+
+
+
+
+
+  - [x] 3.1 实现角色一致性检查
+
+
     - 比较 Character Profile 和 Script 中的角色
     - 检查角色描述一致性
     - 生成不一致问题
     - _需求: 3.1_
 
-  - [ ] 3.2 实现世界观一致性检查
+  - [x] 3.2 实现世界观一致性检查
+
     - 加载 Story Bible 设定
     - 检查 Script 是否违反设定
     - 生成违反问题
     - _需求: 3.2_
 
-  - [ ] 3.3 实现情节连贯性检查
+  - [x] 3.3 实现情节连贯性检查
+
     - 检查场景转换合理性
     - 检查时间线连贯性
     - 生成连贯性问题
@@ -90,21 +119,31 @@
     - 测试情节检查
     - _需求: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 4. Review Gate 实现
-  - [ ] 4.1 创建 Review Gate Service
+- [x] 4. Review Gate 实现
+
+
+
+
+  - [x] 4.1 创建 Review Gate Service
+
+
     - 创建 ReviewGateService 类
     - 实现 pause_for_review 方法
     - 实现 submit_review 方法
     - 实现 process_decision 方法
     - _需求: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-  - [ ] 4.2 实现 Workflow 暂停逻辑
+  - [x] 4.2 实现 Workflow 暂停逻辑
+
+
     - 检查 Stage 的 review_required 标志
     - 更新 StageTask review_status
     - 暂停 workflow 执行
     - _需求: 5.1, 5.2_
 
-  - [ ] 4.3 实现审核决策处理
+  - [x] 4.3 实现审核决策处理
+
+
     - 创建 ReviewDecision 记录
     - 根据 decision 更新 workflow 状态
     - approved: 恢复执行
